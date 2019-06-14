@@ -1,0 +1,417 @@
+---
+title: "Ames House Price prediction using lasso and ridge regression models"
+author: "Applied Statistics Project 1 Team 1"
+date: "June, 2019"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r, echo=F, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(MASS)
+library(psych)
+library(caret)
+library(leaps)
+```
+
+**Introduction** 
+--------------------------------------------
+One of the biggest pitfalls for building prediction models is the risk of overfitting the training dataset, resluting in poor prediction accuracy of the model. The reason for overfitting is that with the increased number of predictors, the model not only fits the signal, but also tried to fit the noise in the trainign data. Mainly, there are two ways to prevent overfitting, validation/cross-validation and regularization. The idea of validation is very straight forward. Before fitting a model, a small portion of training data is randomly setted aside and used for evaluating the accuracy of the model trained on the rest of data. any model with low training error, but has very high testing error is a typical overfitted model. In general, complicated models with many predictors are at higher risk of being overfitting. Thus, the key to prevent overfitting the training data is to keep the model simple (less predictors) and make the weights (coefficients) of predictors small. One popular way to do that is by including  a regularization term in the model. Two shrinkage approaches, Ridge and lasso,  are the most popular regularization methods (Figure 1).  
+
+
+<center>__Ridge model :   minimize (RSS + $\lambda\sum_{j=1}^p (\beta_j)^2$)__  <center> 
+
+
+\center__Lasso model:    minimize (RSS + $\lambda\sum_{j=1}^p |\beta_j|)$__  \center
+  
+*Figure 1. Ridge and lasso models. L2 and L1 penalties are introduced into the ridge and lasso models respectively. \lambda is the tuning parameter, usually determined by cross validation.*   
+
+
+In the ridge model, a L2 regularization term $\lambda\sum_{j=1}^p (\beta_j)^2$ (also called L2 norm or ridge penalty), is introduced into the model to keep the coefficients from getting too large. Similarly, for the lasso model, a L1 regularization term $\lambda\sum_{j=1}^p |\beta_j|)$ (L1 norm or L1 penalty), is included in the model to force some of the coefficients to zero. In this sense, these two models achieved at least two objectives, one is to keep the weights of predictors from getting too large, thus lower the variation of prediction. The other is that both approaches essentially perform the feature selection, force the weights of less important predictor close or equal to zero.  
+
+To choose the proper penalty terms for both ridge and lasso models, validation or cross-validation are used to find the lambda resulting in least amount of validation errors. In particular, cross validation is popular because it uses all the training dataset for model training and in addition most packages will automatically choose the best tuning parameter \lambda.  
+
+
+**Data Description**
+-------------------------
+
+The Ames house price dataset on Kaggle (https://www.kaggle.com/c/house-prices-advanced-regression-techniques) is one of the most popular dataset for regression models. It is an updated and modern version of the traditional Boston Housing dataset. The training and testing (for competition) datasets each have data on about 1,500 houses sold from 2006 to 2010 in Ames, IA. Besides the response variable, SalePrice, the datasets contain about 80 predictive variables associated with the price of a typical house, such as its location (Neighborhood), size (Gross living area), quality and condition (OverallQual and OverallCond). And the predictors are a rich mixture of both numerical and categorical variables. The purpose of the project is to generate several predictive linear regression models, including OLS (ordinary least square model) and OLS with regularization (ridge and lasso models), and compare them in terms of predictive accuracy).
+
+**Exploratory Data Analysis**
+----------------------------------
+### 1. Dealing with missing data  
+
+```{r, loading the datasets and combine train and test datasets, echo=FALSE}
+setwd("C:/Users/yanli/Desktop/Courses/Applied Stats/Proj1")
+pretrain <- read.csv("train.csv", stringsAsFactors = FALSE)
+pretest <- read.csv("test.csv", stringsAsFactors = FALSE)
+pretest$SalePrice <- 10
+total <- rbind(pretrain, pretest)
+```
+
+__After loading and combining the train and test datasets, we first checked for missing data in the combined dataset. For linear regression, it is critical to deal with missing data because any NAs will inevitablly lead to the failure for model training and prediction of test data.__  
+
+```{r, check for missing data in each columns}
+colSums(is.na(total))
+```
+
+__For several columns with lots of NAs, such as Alley and FireplaceQu, the NAs are actually a subcategory by themsleves, we replace these NAs with their own category 'None'.__  
+
+```{r, for some categorical variables, replace the NAs with their own subcategory \'None\', echo=TRUE}
+total$MiscFeature[is.na(total$MiscFeature)] <- 'None'#MiscFeature
+total$FireplaceQu[is.na(total$FireplaceQu)] <- 'None'#FireplaceQu
+total$Fence[is.na(total$Fence)] <- 'None'#Fence
+total$Alley[is.na(total$Alley)] <- 'None'#Alley
+total$PoolQC[is.na(total$PoolQC)] <- 'None'#Alley
+```
+
+__For columns with few NAs, we replaced them by their mean or 0 (numerical variables), mode (categorical variables). A few examples are included below. In particular, for LotFrontage, NAs are replaced by average lotfrontage in their own neighborhood, assuming that house are more similar in the same neighborhood. For dealing with additional columns with missing data, see RMarkdown code for details__  
+
+```{r, For some NAs, replace with their mean, 0, or mode,  echo=TRUE}
+total$MSZoning[is.na(total$MSZoning)] <- 'RL' #For MSZoning, 4 NA replaced by its mode (RL, 76.4%) 
+total$MasVnrArea[is.na(total$MasVnrArea)] <- 0 #MAsVnrArea, replace NA with 0
+total$GarageArea[is.na(total$GarageArea)] <- 412 #GarageArea 1 NA replaced by the average size of detached garages
+
+#LotFrontage NAs replaced by their neighborhood averages ('mean' column in frontage)
+total1 <- total[!is.na(total$LotFrontage),]
+Frontage <- total1%>%group_by(Neighborhood)%>%summarize(mean = as.integer(mean(LotFrontage)))
+
+for (neighborhood in Frontage$Neighborhood){
+  total$LotFrontage[is.na(total$LotFrontage)&total$Neighborhood == neighborhood] <- Frontage$mean[Frontage$Neighborhood==neighborhood]
+}
+```
+
+
+```{r, additional NAs, echo=FALSE}
+#Exterior1st and 2nd, NA replaced by mode
+total$Exterior1st[is.na(total$Exterior1st)] <- 'VinylSd'
+total$Exterior2nd[is.na(total$Exterior2nd)] <- 'VinylSd'
+
+#MasVnrType, replaced one NA(Id =2611, MasVnrArea =195) with mode 'BrkFace' (mode), rest of NAs with None (if MasVnrArea = na) 
+total$MasVnrType[is.na(total$MasVnrType)&total$MasVnrArea != 0] <- 'BrkFace'
+total$MasVnrType[is.na(total$MasVnrType)] <- 'None'
+
+#BsmtFinSF1 BsmtFinSF2, BsmtUnfSF, TotalBsmtSF NAs replaced with 0
+total$BsmtFinSF1[is.na(total$BsmtFinSF1)] <- 0
+total$BsmtFinSF2[is.na(total$BsmtFinSF2)] <- 0
+total$BsmtUnfSF[is.na(total$BsmtUnfSF)] <- 0
+total$TotalBsmtSF[is.na(total$TotalBsmtSF)] <- 0
+
+#BsmtExposure, three NAs (TotalBsmtSF != 0) replaced by its mode 'No', rest of them with None (TotalBsmtSF = 0)
+total$BsmtExposure[is.na(total$BsmtExposure)& total$TotalBsmtSF != 0] <- 'No'
+total$BsmtExposure[is.na(total$BsmtExposure)] <- 'None'
+
+#Replace three NAs in BsmtCond with TA (its mode, TotalBsmtSF != 0), rest of them with None (TotalBsmtSF = 0)
+total$BsmtCond[is.na(total$BsmtCond)& total$TotalBsmtSF != 0] <- 'TA'
+total$BsmtCond[is.na(total$BsmtCond)] <- 'None'
+
+#Replaced two NAs in BsmtQual by TAs (its mode, TotalBsmtSF != 0), rest of them with None (TotalBsmtSF = 0)
+total$BsmtQual[is.na(total$BsmtQual) & total$TotalBsmtSF != 0] <- 'TA'
+total$BsmtQual[is.na(total$BsmtQual)] <- 'None'
+
+#BsmtFinType1&2 replaced NAs with 'None'
+total$BsmtFinType1[is.na(total$BsmtFinType1)] <- 'None'
+total$BsmtFinType2[is.na(total$BsmtFinType2)] <- 'None'
+
+#electrical NA in train dataset replaced by mode "SBrkr"
+total$Electrical[is.na(total$Electrical)] <- "SBrkr"
+
+#BsmtFullBath BsmtHalfBath NAs replaced by 0
+total$BsmtFullBath[is.na(total$BsmtFullBath)] <- 0
+total$BsmtHalfBath[is.na(total$BsmtHalfBath)] <- 0
+
+#KitchenQual NA replaced by TA
+total$KitchenQual[is.na(total$KitchenQual)] <- "TA"
+
+#Functional NAs replaced by Typ
+total$Functional[is.na(total$Functional)] <- "Typ"
+
+#GarageYrBlt NAs replaced by YearBuilt even if there is no garages(==house age) because new houses all have garages
+total$GarageYrBlt[is.na(total$GarageYrBlt)] <- total$YearBuilt[is.na(total$GarageYrBlt)]
+total$GarageYrBlt[total$GarageYrBlt == 2207] <- 2007#obvious typo
+
+#GarageFinish 2 NAs replaced by "Unf" mode of detached garages
+total$GarageFinish[is.na(total$GarageFinish)&!is.na(total$GarageType)] <- "Unf"
+
+#GarageCars 1 NA replaced by 1 mode of detached garages
+total$GarageCars[is.na(total$GarageCars)] <- 1
+
+#GarageArea 1 NA replaced by 412 (the average size of detached garages)
+total$GarageArea[is.na(total$GarageArea)] <- 412
+
+#GarageQual and GarageCond, 2 NAs replace with TA (the mode of detached garages), replace rest of garage NAs with None
+total$GarageQual[is.na(total$GarageQual)&!is.na(total$GarageType)] <- 'TA'
+total$GarageCond[is.na(total$GarageCond)&!is.na(total$GarageType)] <- 'TA'
+total$GarageType[is.na(total$GarageType)] <- "None"
+total$GarageFinish[is.na(total$GarageFinish)] <- "None"
+total$GarageQual[is.na(total$GarageQual)] <- "None"
+total$GarageCond[is.na(total$GarageCond)] <- "None"
+
+#SaleType 1 NA replaced by its mode WD 
+total$SaleType[is.na(total$SaleType)] <- "WD"
+```
+
+```{r, check again for NAs, echo = F}
+#colSums(is.na(total))
+```
+
+###2. Change some numerical variables into categorical and *vis versa*
+
+__For MSSubClass, MoSold and YrSold, it makes more sense to set them as categorical variables.__  
+
+```{r, MSSubClass, MoSold and YrSold}
+#set the following three numerical variables as characters 
+total$MSSubClass <- as.character(total$MSSubClass)
+total$MoSold <- as.character(total$MoSold)
+total$YrSold <- as.character(total$YrSold)
+```
+
+__For quality and condition evaluations, it makes more sense to set them as numerical variables. One example ExterQual is shown below.  For additional columns, include ExterCond, BsmtCond, BsmtQual, HeatingQC, KitchenQual, FireplaceQu and GarageQual, see RMarkdown file for details. Note that for some columns, we combined some categories because they have few data points.__  
+
+```{r, ExterQual, echo=TRUE}
+#set categorical variable ExterQual as numerical  
+total$ExterQual[total$ExterQual == 'Fa'] <- 1
+total$ExterQual[total$ExterQual == 'TA'] <- 2
+total$ExterQual[total$ExterQual == 'Gd'] <- 3
+total$ExterQual[total$ExterQual == 'Ex'] <- 4
+total$ExterQual <- as.numeric(total$ExterQual)
+```
+
+```{r, echo=FALSE}
+#set categorical variable ExterCond as numerical  
+total$ExterCond[total$ExterCond == 'Po'] <- 1
+total$ExterCond[total$ExterCond == 'Fa'] <- 1
+total$ExterCond[total$ExterCond == 'TA'] <- 2
+total$ExterCond[total$ExterCond == 'Gd'] <- 3
+total$ExterCond[total$ExterCond == 'Ex'] <- 4
+total$ExterCond <- as.numeric(total$ExterCond)
+
+#set categorical variable BsmtCond as numerical  
+total$BsmtCond[total$BsmtCond == 'Po'] <- 1
+total$BsmtCond[total$BsmtCond == 'None'] <- 0
+total$BsmtCond[total$BsmtCond == 'Fa'] <- 1
+total$BsmtCond[total$BsmtCond == 'TA'] <- 2
+total$BsmtCond[total$BsmtCond == 'Gd'] <- 3
+total$BsmtCond <- as.numeric(total$BsmtCond)
+
+#set categorical variable BsmtQual as numerical  
+total$BsmtQual[total$BsmtQual == 'Fa'] <- 1
+total$BsmtQual[total$BsmtQual == 'None'] <- 0
+total$BsmtQual[total$BsmtQual == 'TA'] <- 2
+total$BsmtQual[total$BsmtQual == 'Gd'] <- 3
+total$BsmtQual[total$BsmtQual == 'Ex'] <- 4
+total$BsmtQual <- as.numeric(total$BsmtQual)
+
+#set categorical variable HeatingQC as numerical  
+total$HeatingQC[total$HeatingQC == 'Po'] <- 1
+total$HeatingQC[total$HeatingQC == 'Fa'] <- 1
+total$HeatingQC[total$HeatingQC == 'TA'] <- 2
+total$HeatingQC[total$HeatingQC == 'Gd'] <- 3
+total$HeatingQC[total$HeatingQC == 'Ex'] <- 4
+total$HeatingQC <- as.numeric(total$HeatingQC)
+
+#set categorical variable KitchenQual as numerical  
+total$KitchenQual[total$KitchenQual == 'Fa'] <- 1
+total$KitchenQual[total$KitchenQual == 'TA'] <- 2
+total$KitchenQual[total$KitchenQual == 'Gd'] <- 3
+total$KitchenQual[total$KitchenQual == 'Ex'] <- 4
+total$KitchenQual <- as.numeric(total$KitchenQual)
+
+#set categorical variable FireplaceQu as numerical  
+total$FireplaceQu[total$FireplaceQu == 'None'] <- 0
+total$FireplaceQu[total$FireplaceQu == 'Po'] <- 1
+total$FireplaceQu[total$FireplaceQu == 'Fa'] <- 2
+total$FireplaceQu[total$FireplaceQu == 'TA'] <- 3
+total$FireplaceQu[total$FireplaceQu == 'Gd'] <- 4
+total$FireplaceQu[total$FireplaceQu == 'Ex'] <- 5
+total$FireplaceQu <- as.numeric(total$FireplaceQu)
+
+#set categorical variable GarageQual as numerical  
+total$GarageQual[total$GarageQual == 'None'] <- 0
+total$GarageQual[total$GarageQual == 'Po'] <- 1
+total$GarageQual[total$GarageQual == 'Fa'] <- 1
+total$GarageQual[total$GarageQual == 'TA'] <- 2
+total$GarageQual[total$GarageQual == 'Gd'] <- 3
+total$GarageQual[total$GarageQual == 'Ex'] <- 3
+total$GarageQual <- as.numeric(total$GarageQual)
+
+total$GarageCond[total$GarageCond == 'None'] <- 0
+total$GarageCond[total$GarageCond == 'Po'] <- 1
+total$GarageCond[total$GarageCond == 'Fa'] <- 1
+total$GarageCond[total$GarageCond == 'TA'] <- 2
+total$GarageCond[total$GarageCond == 'Gd'] <- 3
+total$GarageCond[total$GarageCond == 'Ex'] <- 3
+total$GarageCond <- as.numeric(total$GarageCond)
+
+#set categorical variable PoolQC as numerical  
+total$PoolQC[total$PoolQC == 'None'] <- 0
+total$PoolQC[total$PoolQC == 'Fa'] <- 1
+total$PoolQC[total$PoolQC == 'Gd'] <- 2
+total$PoolQC[total$PoolQC == 'Ex'] <- 2
+total$PoolQC <- as.numeric(total$PoolQC)
+```
+
+###3. For some additonal categorical variables, we combined some subcategories. Because some categories have few data points (less than 10), which can present challenges for prediction and cross validation. It is possible that they might be only present in test dataset and lead to prediction failure.__  
+
+__First, we find the subcategories with fewer than 10 samples.__
+
+```{r}
+categorical_cols = total[, !sapply(total, is.numeric)]#table with only categorical variables
+dummy = data.frame(model.matrix(~.-1, categorical_cols))#one hot encode create dummy variables
+colnames(dummy[, colSums(dummy)<10])#subcategories contain less than 10 samples
+```
+__Next, we can either delete all these subcategories (especially if it is not feasible to wrangle them manually), or deal with them individually by combining them with other subcategories with similar SalePrice distribution. An example how to do that is shown below. We performed similar procedures for addtional 12 categorical variables (not shown, see Rmarkdown file for details).__   
+
+```{r }
+#combined MSSubClass40 and 150 with MSSubClass160 according the following plot
+ggplot(total, aes(MSSubClass, SalePrice))+geom_point()+ggtitle("before combining categories")
+total$MSSubClass[total$MSSubClass=='40'|total$MSSubClass=='150']= '160'
+ggplot(total, aes(MSSubClass, SalePrice))+geom_point()+ggtitle('After combining categories')
+```
+
+```{r, other categorical variable with few datapoints in their subcategories, echo=FALSE}
+total <- total[colnames(total) != 'Utilities']#delete utilities, all but one house are 'AllPub'
+total$Condition1[total$Condition1=='RRNe'|total$Condition1=='RRNn']='RRAn'#Condition1
+total$Condition2[total$Condition2=='RRAn'|total$Condition2=='RRNn'|total$Condition2=='Feedr']='Artery'#Condition2
+total$Condition2[total$Condition2=='RRAe'|total$Condition2=='PosN'|total$Condition2=='PosA']='Norm'#Condition2
+total$HouseStyle[total$HouseStyle=='1.5Unf']='1.5Fin'#Housestyle
+total$HouseStyle[total$HouseStyle=='2.5Unf']='2.5Fin'#Housestyle
+total$RoofStyle[total$RoofStyle=='Shed'|total$RoofStyle=='Mansard']='Hip'#RoofStyle
+total$RoofMatl[total$RoofMatl=='Membran'|total$RoofMatl== 'Metal' | total$RoofMatl=='Roll']='CompShg'#roofmatl
+total$RoofMatl[total$RoofMatl== 'WdShngl' | total$RoofMatl=='WdShake']='Wd'#roofmatl
+total$Exterior1st[total$Exterior1st=='BrkComm'|total$Exterior1st== 'CBlock' | total$Exterior1st=='AsphShn']='AsbShng'#Exterior1st
+total$Exterior1st[total$Exterior1st=='ImStucc'|total$Exterior1st== 'Stone']='VinylSd'#Exterior1st
+total$Exterior2nd[total$Exterior2nd=='ImStucc'|total$Exterior2nd== 'CBlock' | total$Exterior2nd=='AsphShn']='AsbShng'#Exterior2nd
+total$Exterior2nd[total$Exterior2nd=='Other'|total$Exterior2nd== 'Stone']='Plywood'#Exterior2nd
+total$Foundation[total$Foundation=='Stone'|total$Foundation== 'Wood']='CBlock'#foundation 
+total$Heating[total$Heating=='Floor'|total$Heating=='OthW'|total$Heating=='Wall']='Grav'#Heating
+total$Electrical[total$Electrical=='FuseP'|total$Electrical=='Mix']='FuseF'#Electrical
+total$Functional[total$Functional=='Sev']='Maj2'#Functional
+total$MiscFeature[total$MiscFeature=='TenC'|total$MiscFeature=='Othr'|total$MiscFeature=='Gar2']='Shed'#MiscFeature
+total$SaleType[total$SaleType=='Oth'|total$SaleType=='ConLD'|total$SaleType=='ConLw']='COD'#SaleType
+total$SaleType[total$SaleType=='Con'|total$SaleType=='CWD'|total$SaleType=='ConLI']='WD'#SaleType
+```
+
+###4. Generate all dummy variables using one hot encode 
+
+```{r, one hot encode, echo=TRUE}
+numeric_cols = total[, sapply(total, is.numeric)]#separate numerical and categorical variables 
+categorical_cols = total[, !sapply(total, is.numeric)]
+dummy = data.frame(model.matrix(~.-1, categorical_cols))#one hot encode create dummy variables 
+total1 = cbind(dummy, numeric_cols)#regenerate the full table
+```
+
+###5. Generate correlation martix and list and remove highly correlated variables
+
+```{r}
+corr = cor(total1)
+table = as.data.frame(as.table(corr))
+table = table[order(table$Freq),]
+subset(table, abs(Freq) > 0.9 & table$Var1 != table$Var2)
+
+#remove highly correlated variables
+highCorr = findCorrelation(corr, cutoff=.9)
+total2 = total1[,-c(highCorr)]
+```
+
+###6. Separating train and test datasets   
+
+```{r, recover train and test datasets, echo=TRUE}
+train <- total2[total$SalePrice != 10, ]
+test <- total2[total$SalePrice == 10, ]
+```
+
+###7. looking for outliers in train dataset
+
+__We first idenitfied the predictors that are highly correlated with the response variable SalePrice. Then we plotted one of strong predictor GrLivArea against SalePrice and identified two datapoints with both high leverage and influence. In addition, further investigation confirmed that both are presale and likely not reflective their true sale price. We removed these two outliers that have the largest living area (GrLivArea > 4500) and exceptionally low price.__  
+
+```{r, remove two outliers in train dataset, echo=TRUE}
+#identify the highest corerlated predictors for the response variable SalePrice
+corr = cor(train)
+table = as.data.frame(as.table(corr))
+table = table[order(table$Freq, decreasing =TRUE),]
+corr1 = subset(table, table$Var1=='SalePrice')
+head(corr1, 10)#Top 10 predictors
+
+#plot Saleprice vs GrLivArea to identify and remoive outliers 
+ggplot(train, aes(GrLivArea, SalePrice))+geom_point()+ggtitle('Scatter plot highlighting the two presale outliers in red')+geom_point(data=train[train$GrLivArea>4500, ], aes(GrLivArea, SalePrice), colour="red", size=7)
+train = train[train$GrLivArea<4500, ]
+```
+
+###8. log transformation of SalePrice
+
+__plotting SalePrice vs several of its strong predictors, such as OverallQual shown below, demonstrates a distictive curve, suggesting that logorithmic transformation of SalePrice might help fit the regression model better. Indeed, after SalePrice log transformation, the two variables appear to have a linear relationship.__  
+
+```{r, log tranformation of SalePrice, echo = TRUE}
+ggplot(train, aes(OverallQual, SalePrice))+geom_point()+geom_smooth()+ggtitle('Before log transformation')
+train$SalePrice = log(train$SalePrice)#logtranformation of response variable SalePrice
+ggplot(train, aes(OverallQual, SalePrice))+geom_point()+geom_smooth()+ggtitle('After log transformation')
+```
+
+
+**Fitting models**
+-------------------------
+
+__After extensive data cleanup and transformation, we are ready to train regression models. We are going to train three models: a regular linear regression model, also called ordinary least square (OLS) model, ridge regression model and lasso regression model.__  
+
+###1. First we set aside a test dataset by spliting the train dataset into train_train and train_test (8:2)
+
+```{r, set aside a test dataset, echo=T}
+set.seed(99)
+index = createDataPartition(train$SalePrice, p=.8, list = F)
+train_train = train[index, ]
+train_test = train[-index, ]
+```
+
+###2. setup training controls  
+
+```{r}
+fit_control = trainControl(method = 'cv', number = 5)
+```
+
+###3. fit the OLS model
+
+```{r, OLS model}
+full_model = train(SalePrice~., data=train_train, method = 'lm', trControl = fit_control)
+full_model$results#showing the cross validation errors????
+plot(varImp(full_model), top=15)
+plot(full_model$finalModel)#residual plots 
+```
+
+###4. fit the ridge model
+
+```{r, ridge model}
+ridge_model = train(SalePrice~., train_train, method='glmnet', tuneGrid = expand.grid(alpha=0, lambda = seq(0.0001, .2, length = 1000)), trControl=fit_control)
+plot(ridge_model)
+plot(ridge_model$finalModel)
+plot(ridge_model$finalModel, 'lambda')
+plot(varImp(ridge_model, scale = T), top = 20)#???
+```
+
+###5. fit the lasso model
+
+```{r, lasso model, echo=TRUE}
+lasso_model = train(SalePrice~., train_train, method='glmnet', tuneGrid = expand.grid(alpha=1, lambda = seq(0.00001, 0.02, length = 1000)), trControl=fit_control)
+plot(lasso_model)
+plot(lasso_model$finalModel, 'lambda', label = TRUE)
+plot(lasso_model$finalModel, 'norm', label = TRUE)
+plot(varImp(lasso_model), top =20)
+```
+
+###6. Comparing the models  
+
+__We compare mean squared errors (MSE) of the fitted models when they are applied on the same test dataset we set aside earlier. From the results, we conclude that both regularzed models have significant higher prediction accuracy then OLS model because their MSE scores are lower then the of OLS model.__  
+
+```{r, comparing three models, warning=FALSE, echo=TRUE}
+predict1 = predict(full_model, train_test)
+OLS = postResample(predict1, train_test$SalePrice)
+predict2 = predict(ridge_model, train_test)
+Ridge = postResample(predict2, train_test$SalePrice)
+predict3 = predict(lasso_model, train_test)
+Lasso = postResample(predict3, train_test$SalePrice)
+table = rbind(OLS, Ridge, Lasso)
+table
+```
+
