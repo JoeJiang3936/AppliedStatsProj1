@@ -1,5 +1,5 @@
 ---
-title: "Ames House Price prediction using lasso and ridge regression models"
+title: "Ames house price prediction using lasso and ridge regression models"
 author: "Applied Statistics Project 1 Team 1"
 date: "June, 2019"
 output:
@@ -18,18 +18,14 @@ library(leaps)
 
 **Introduction** 
 --------------------------------------------
-One of the biggest pitfalls for building prediction models is the risk of overfitting the training dataset, resluting in poor prediction accuracy of the model. The reason for overfitting is that with the increased number of predictors, the model not only fits the signal, but also tried to fit the noise in the trainign data. Mainly, there are two ways to prevent overfitting, validation/cross-validation and regularization. The idea of validation is very straight forward. Before fitting a model, a small portion of training data is randomly setted aside and used for evaluating the accuracy of the model trained on the rest of data. any model with low training error, but has very high testing error is a typical overfitted model. In general, complicated models with many predictors are at higher risk of being overfitting. Thus, the key to prevent overfitting the training data is to keep the model simple (less predictors) and make the weights (coefficients) of predictors small. One popular way to do that is by including  a regularization term in the model. Two shrinkage approaches, Ridge and lasso,  are the most popular regularization methods (Figure 1).  
+One of the biggest pitfalls for building prediction models is the risk of overfitting the training dataset, resluting in poor prediction accuracy of the model. The reason for overfitting is that with the increased number of predictors, the model not only fits the signal, but also tried to fit the noise in the trainign data. Mainly, there are two ways to prevent overfitting, validation/cross-validation and regularization. The idea of validation is very straight forward. Before fitting a model, a small portion of training data is randomly setted aside and used for evaluating the accuracy of the model trained on the rest of data. any model with low training error, but has very high testing error is a typical overfitted model. In general, complicated models with many predictors are at higher risk of being overfitting. Thus, the key to prevent overfitting the training data is to keep the model simple (less predictors) and make the weights (coefficients) of predictors small. One popular way to do that is by including  a regularization term in the model. Two shrinkage approaches, ridge and lasso,  are the most popular regularization methods.  
+
+__Ridge model :   minimize (RSS + $\lambda\sum_{j=1}^p (\beta_j)^2$)__  
 
 
-<center>__Ridge model :   minimize (RSS + $\lambda\sum_{j=1}^p (\beta_j)^2$)__  <center> 
+__Lasso model:    minimize (RSS + $\lambda\sum_{j=1}^p |\beta_j|)$__  
 
-
-\center__Lasso model:    minimize (RSS + $\lambda\sum_{j=1}^p |\beta_j|)$__  \center
-  
-*Figure 1. Ridge and lasso models. L2 and L1 penalties are introduced into the ridge and lasso models respectively. \lambda is the tuning parameter, usually determined by cross validation.*   
-
-
-In the ridge model, a L2 regularization term $\lambda\sum_{j=1}^p (\beta_j)^2$ (also called L2 norm or ridge penalty), is introduced into the model to keep the coefficients from getting too large. Similarly, for the lasso model, a L1 regularization term $\lambda\sum_{j=1}^p |\beta_j|)$ (L1 norm or L1 penalty), is included in the model to force some of the coefficients to zero. In this sense, these two models achieved at least two objectives, one is to keep the weights of predictors from getting too large, thus lower the variation of prediction. The other is that both approaches essentially perform the feature selection, force the weights of less important predictor close or equal to zero.  
+<left>In the ridge model, a L2 regularization term $\lambda\sum_{j=1}^p (\beta_j)^2$ (also called L2 norm or ridge penalty), is introduced into the model to keep the coefficients from getting too large. Similarly, for the lasso model, a L1 regularization term $\lambda\sum_{j=1}^p |\beta_j|)$ (L1 norm or Lasso penalty), is included in the model to force some coefficients to zero. In this sense, these two models achieved at least two objectives, one is to keep the weights of predictors from getting too large, thus lowering the variation of prediction. The other is that both approaches essentially perform feature selection by forcing the weights of less important predictors close or equal to zero.  
 
 To choose the proper penalty terms for both ridge and lasso models, validation or cross-validation are used to find the lambda resulting in least amount of validation errors. In particular, cross validation is popular because it uses all the training dataset for model training and in addition most packages will automatically choose the best tuning parameter \lambda.  
 
@@ -77,7 +73,6 @@ total$GarageArea[is.na(total$GarageArea)] <- 412 #GarageArea 1 NA replaced by th
 #LotFrontage NAs replaced by their neighborhood averages ('mean' column in frontage)
 total1 <- total[!is.na(total$LotFrontage),]
 Frontage <- total1%>%group_by(Neighborhood)%>%summarize(mean = as.integer(mean(LotFrontage)))
-
 for (neighborhood in Frontage$Neighborhood){
   total$LotFrontage[is.na(total$LotFrontage)&total$Neighborhood == neighborhood] <- Frontage$mean[Frontage$Neighborhood==neighborhood]
 }
@@ -262,7 +257,7 @@ categorical_cols = total[, !sapply(total, is.numeric)]#table with only categoric
 dummy = data.frame(model.matrix(~.-1, categorical_cols))#one hot encode create dummy variables
 colnames(dummy[, colSums(dummy)<10])#subcategories contain less than 10 samples
 ```
-__Next, we can either delete all these subcategories (especially if it is not feasible to wrangle them manually), or deal with them individually by combining them with other subcategories with similar SalePrice distribution. An example how to do that is shown below. We performed similar procedures for addtional 12 categorical variables (not shown, see Rmarkdown file for details).__   
+__Next, we can either delete all these subcategories (especially if it is not feasible to wrangle them manually), or deal with them individually by combining them with other subcategories with similar SalePrice distribution. An example how to do that is shown below. We plot the distribution of SalePrice against  all MSSubClasses and combine subclass 40 and 150 with subclass 160 (they share similar distribution). We performed similar procedures for addtional 12 categorical variables (not shown, see Rmarkdown file for details). In addition, we dropped a couple of variables, Id and Utilities, because of their lack of prediction value.__   
 
 ```{r }
 #combined MSSubClass40 and 150 with MSSubClass160 according the following plot
@@ -273,6 +268,7 @@ ggplot(total, aes(MSSubClass, SalePrice))+geom_point()+ggtitle('After combining 
 
 ```{r, other categorical variable with few datapoints in their subcategories, echo=FALSE}
 total <- total[colnames(total) != 'Utilities']#delete utilities, all but one house are 'AllPub'
+total <- total[colnames(total) != 'Id']#delete Id, not a predictor per se
 total$Condition1[total$Condition1=='RRNe'|total$Condition1=='RRNn']='RRAn'#Condition1
 total$Condition2[total$Condition2=='RRAn'|total$Condition2=='RRNn'|total$Condition2=='Feedr']='Artery'#Condition2
 total$Condition2[total$Condition2=='RRAe'|total$Condition2=='PosN'|total$Condition2=='PosA']='Norm'#Condition2
@@ -303,7 +299,7 @@ dummy = data.frame(model.matrix(~.-1, categorical_cols))#one hot encode create d
 total1 = cbind(dummy, numeric_cols)#regenerate the full table
 ```
 
-###5. Generate correlation martix and list and remove highly correlated variables
+###5. Generate correlation martix, list and remove highly correlated variables (cutoff=0.9)
 
 ```{r}
 corr = cor(total1)
@@ -323,9 +319,9 @@ train <- total2[total$SalePrice != 10, ]
 test <- total2[total$SalePrice == 10, ]
 ```
 
-###7. looking for outliers in train dataset
+###7. looking for potential outliers in train dataset
 
-__We first idenitfied the predictors that are highly correlated with the response variable SalePrice and plotted one of strong predictor GrLivArea against SalePrice and visually identified two datapoints (id =524 and 1299) with high leverage and influence (highlighted in red). We further fitted a preliminary full linear regression model and examined its residual vs leverage plot. Indeed, the same two data points have very large residuals and high cook's D score (notice that Id= 1299 is actually literally off the chart). In addition, further investigation confirmed that both are presales and likely not reflective their true sale price. We removed these two outliers that have the largest living area (GrLivArea > 4500), but with exceptionally low sale prices.__  
+__We first idenitfied the predictors that are highly correlated with the response variable SalePrice and plotted one of strong predictor GrLivArea against SalePrice and visually identified two potential datapoints (id =524 and 1299) with high leverage and influence (highlighted in red). We further fitted a preliminary full linear regression model and examined its residual vs leverage plot. Indeed, the same two data points have very large residuals, high leverage and cook's D score (notice that Id= 1299 is actually literally off the chart!). In addition, further investigation confirmed that both are partial sales and likely not reflective their true sale prices. We removed these two outliers in part because of they have the largest living area (GrLivArea > 4500), yet both of them have exceptionally low sale prices.__  
 
 ```{r, remove two outliers in train dataset, warning = FALSE, echo=TRUE}
 #identify the highest corerlated predictors for the response variable SalePrice
@@ -334,9 +330,8 @@ table = as.data.frame(as.table(corr))
 table = table[order(table$Freq, decreasing =TRUE),]
 corr1 = subset(table, table$Var1=='SalePrice')
 head(corr1, 10)#Top 10 predictors
-
 #plot Saleprice vs one of its top predictors, GrLivArea, to visually identify outliers 
-ggplot(train, aes(GrLivArea, SalePrice))+geom_point()+ggtitle('Scatter plot highlighting the two presale outliers in red')+geom_point(data=train[train$GrLivArea>4500, ], aes(GrLivArea, SalePrice), colour="red", size=7)
+ggplot(train, aes(GrLivArea, SalePrice))+geom_point()+ggtitle('Scatter plot highlighting two partial sales in red')+geom_point(data=train[train$GrLivArea>4500, ], aes(GrLivArea, SalePrice), colour="red", size=7)
 #Another way to look at their leverage and influence by fitting a preliminary full linear regression model and examine its residual plots
 Pre_model = lm(SalePrice~., data= train)
 plot(Pre_model, which = 5, caption = NULL, main = 'Outliers detection (Id=524 (shown) and Id=1299 (off the chart)')
@@ -358,7 +353,7 @@ ggplot(train, aes(OverallQual, SalePrice))+geom_point()+geom_smooth()+ggtitle('A
 **Fitting models**
 -------------------------
 
-__After extensive data cleanup and transformation, we are ready to train regression models. We are going to train three models: a regular linear regression model, also called ordinary least square (OLS) model, ridge regression model and lasso regression model.__  
+__After extensive data cleanup and transformation, we are ready to train regression models for predicting house prices. We are going to train three models: a regular linear regression model, also called ordinary least square (OLS) model, ridge  and lasso regression model.__  
 
 ###1. First we set aside a test dataset by spliting the train dataset into train_train and train_test (8:2)
 
@@ -372,15 +367,14 @@ train_test = train[-index, ]
 ###2. setup training controls  
 
 ```{r}
-fit_control = trainControl(method = 'cv', number = 5)
+fit_control = trainControl(method = 'cv', number = 10)
 ```
 
 ###3. fit the OLS model
-__We first fitted the full ordinary least square regression model and assessed its residual plots for assumptions of linear regression. First of all, we have no reason to suspect that all sales are independent from each other and likely reflects its true value. Second, with the exception of houses with low predicted values (fitted values < 11.5), the variance is more or less constant. Third, from the QQ-plot, the assumption of normal distribution of residuals are less than ideal, significant deviation exists in both end of quantiles. Fourth, many predictors are indeed linearly correlated with the response variable, SalePrice. Thus, the linear regression modle is likely a good model for the dataset.__
+__We first fitted full regression model, also called ordinary least square (OLS) model and assessed its residual plots for assumptions of linear regression. First of all, we have no reason to suspect that all sales are independent from each other and likely reflect their true value. Second, with the exception of houses with low predicted values (fitted values < 11.5), the variance is more or less constant. Third, from the QQ-plot, the assumption of normal distribution of residuals are less than ideal, significant deviation from linearity exists in both end of theoretical quantiles. Fourth, many predictors are indeed linearly correlated with the response variable, SalePrice. Thus, the linear regression model is likely a  sufficient fit for the dataset.__
 
 ```{r, OLS model, warning=FALSE, echo=TRUE}
 full_model = train(SalePrice~., data=train_train, method = 'lm', trControl = fit_control)
-plot(varImp(full_model), top=15)
 plot(full_model$finalModel)#residual plots 
 ```
 
@@ -388,24 +382,24 @@ plot(full_model$finalModel)#residual plots
 
 __Next, we fitted the ridge model and used cross validation to find the best value for the tuning parameter lambda. From the results, we noticed that the best tuned lambda value is rather small (), suggesting that only a small penalty is necessary for the reguarization. In other words, this is a rather rich model with many strong predictors, consistent with our correlation martrix analyses and ordinary least square model above.__  
 
-```{r, ridge model}
-ridge_model = train(SalePrice~., train_train, method='glmnet', tuneGrid = expand.grid(alpha=0, lambda = seq(0.0001, .2, length = 1000)), trControl=fit_control)
+```{r, ridge model, warning=FALSE, echo=TRUE}
+ridge_model = train(SalePrice~., train_train, method='glmnet', preProc = c("center", "scale"), tuneGrid = expand.grid(alpha=0, lambda = seq(0.0001, .2, length = 1000)), trControl=fit_control)
 plot(ridge_model)
 plot(ridge_model$finalModel)
 plot(ridge_model$finalModel, 'lambda')
-plot(varImp(ridge_model, scale = T), top = 20)#???
 ```
 
 ###5. fit the lasso model
 
 __We also fitted the asso model and used cross validation to choose the best tuning parameter lambda, which results in smallest MSE. We similarly noticed that the best tuning lambda value is rather small, suggesting that the training dataset contains a rich set of  strong predictors and only small penalty term is necessary to achieve the best regularization.__  
 
-```{r, lasso model, echo=TRUE}
-lasso_model = train(SalePrice~., train_train, method='glmnet', tuneGrid = expand.grid(alpha=1, lambda = seq(0.00001, 0.02, length = 1000)), trControl=fit_control)
+```{r, lasso model, warning = FALSE, echo=TRUE}
+lasso_model = train(SalePrice~., train_train, method='glmnet', preProc = c("center", "scale"), tuneGrid = expand.grid(alpha=1, lambda = seq(0.00001, 0.02, length = 1000)), trControl=fit_control)
 plot(lasso_model)
+coef = coef(lasso_model$finalModel, lasso_model$bestTune$lambda)
+paste('The number of predictors with non-zero coefficients in the Lasso model: ', sum(coef!=0))
 plot(lasso_model$finalModel, 'lambda', label = TRUE)
 plot(lasso_model$finalModel, 'norm', label = TRUE)
-plot(varImp(lasso_model), top =20)
 ```
 
 ###6. Comparing the models  
@@ -421,5 +415,15 @@ predict3 = predict(lasso_model, train_test)
 Lasso = postResample(predict3, train_test$SalePrice)
 table = rbind(OLS, Ridge, Lasso)
 table
+
+par(mfrow=c(1,3))
+plot(varImp(full_model), top=20, main='OLS Model Variable Importance Score')
+plot(varImp(ridge_model, scale = T), top = 20, main='Ridge Model Variable Importance Score')
+plot(varImp(lasso_model), top =20, main= 'Lasso Model Variable Importance Score')
 ```
 
+
+**Conclusion**
+---------------------------------------
+
+__
