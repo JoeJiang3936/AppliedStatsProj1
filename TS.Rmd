@@ -1,0 +1,186 @@
+---
+title: "PROJECT - OBJECTIVE 2"
+output:
+  word_document: default
+  html_document: default
+---
+
+## GREENHOUSE GAS EMISSIONS TIME SERIES
+
+
+
+### OBJECTIVE
+
+
+### ANALYSIS
+
+**Dataset**
+
+Greenhouse Gas Emissions dataset contains serial data on pollution volumes for 10 highly populous nations over 40 years. There are 5 variables: country name, country code, year, population, volume of greenhouse gas emissions, and population. To simplify, lets summarize all of the pollution by year.
+
+**Load the libraries**
+
+```{r}
+library(tseries)
+library(forecast)
+library(ggplot2)
+library(car)
+```
+
+
+While looking at the time-series, the following should be considered below modeling.
+
+* Is there a trend, seasonaliltuy ?
+
+* Are there outliers?
+
+* Is there a constant variance over time or is the variance non-constant?
+
+
+
+**Read the file and load into data frame**
+
+```{r}
+#pol_data<-read.csv('P:\\01 Research\\TS\\greenhousegas_pop_10nations.csv')
+pol_data<-read.csv('/Users/micha/OneDrive/Desktop/SMU MSDS/Applied Stats/Project 1/greenhousegas_pop_10nations.csv')
+```
+
+Let's do some rudimentary exploration:
+
+```{r}
+head(pol_data)
+summary(pol_data)
+```
+
+There appear to be plenty of observations and there are two measures in play. Since we are only interested in the global greenhouse gas metric, let's summarize to eliminate any question of independence (we only have one world after all):
+
+```{r}
+pol_data<-aggregate(pol_data$grnGasEm100K, by=list(year=pol_data$year), FUN=sum)
+pol_data$year<-as.factor(pol_data$year)
+pol_data$DateIndex<-1:nrow(pol_data)
+```
+
+Next, let's plot it and get an idea of what this summarized measure looks like:
+
+```{r}
+attach(pol_data)
+#ggplot()+geom_line(data=pol_data,aes(x=DateIndex,y=x))
+plot(x,type = "b", main="Time Series Plot of Greenhouse Gas Emissions")
+```
+
+Some features of the plot:
+
+* There is an upward trend over the time span. 
+
+* There is no seasonality but the there is an upward trend.
+
+* There are no obvious outliers.
+
+* It looks like the variance is non-constant.There might be increasing variation as we move across time.
+
+* Also, the number of observations are less than 50.
+
+Lets look into further details in the dataset.
+
+**Autocorrelation Function (ACF)**
+
+Lets plot ACF to identify the psosible structure of time series data. 
+
+
+```{r}
+acf(x)
+```
+
+The plot looks like it has a tapering pattern and is gradually tails off. This is an ACF type 4, and likely indicates a nonstationary dataset.
+
+**Partial Autocorrelation Function (ACF)**
+
+From PACF plot, it cuts off after 1 lag. The first lag value is statistically significant where as partial autocorrelations for all other lags are not statistically significant. It may suggest AR(1) model.
+
+```{r}
+pacf(x)
+```
+
+Lets check ~durbin watson test~ to check for prescence of autocorrelation at lag 1.
+
+```{r}
+durbinWatsonTest(lm(x~1),max.lag=4)
+```
+
+Based on the value, it looks like it is positive auto correlation since the values lies between 0 and less than 2. To know for sure, let's try an AR1 model:
+
+```{r}
+AR1<-arima(x,order=c(1,0,0))
+```
+
+**Error in arima(x, order = c(1, 0, 0)) : non-stationary AR part from CSS**
+
+It errored out as the series is non-stationary ie., the statistical properties changes overtime. 
+
+To model this time series, it has to be converted to stationary. The series is consistently increasing over time, the sample mean and variance will grow with the size of the sample.
+
+In order to model this timeseries, we need to detrend it and change to stationary. One of the option, we have to do the differencing or log transformation. 
+
+```{r}
+par(mfrow=c(1,4))
+
+plot(x,type = "l", main="Without log or differencing")
+
+plot(log(x),type = "l", main="With log")
+
+plot(diff(x),type = "l", main="With differencing")
+
+plot(diff(log(x)),type = "l",main="With log and differencing")
+```
+
+
+"With log and differencing" and "only differencing", the series is more stationary and no trend. The plots "with differencing" and "with log and differencing" shows similar plots with not much change.
+
+We will go with "with differencing" option, to make it stationary.
+
+```{r}
+AR1<-arima(diff(x),order=c(1,0,0))
+AR2<-arima(diff(x),order=c(2,0,0))
+AR3<-arima(diff(x),order=c(3,0,0))
+```
+
+
+The following are the residual diagnostics from AR(1), AR(2) and AR(3) -
+```{r}
+tsdisplay(residuals(AR1),lag.max=15,main="AR(1) Resid. Diagnostics")
+
+tsdisplay(residuals(AR2),lag.max=15,main="AR(2) Resid. Diagnostics")
+
+tsdisplay(residuals(AR3),lag.max=15,main="AR(3) Resid. Diagnostics")
+```
+
+AR1 does not show like the time series is uncorrelated. The ACF and PACF plots show evidence of support. There is no evidence of autocorrelation outside of the Bartlett two-standard-error bands for white noise, given by the blue dotted lines.
+
+```{r}
+durbinWatsonTest(lm(diff(x)~1),max.lag=4)
+```
+
+**AIC Validation**
+
+```{r}
+AIC(AR1)
+AIC(AR2)
+AIC(AR3)
+```
+
+When comparing different models, the one with lowest AIC is generally better. From the above calculation, AIC(4) has the lowest with 283.9137. Also, from the residual diagnostics AR(1),AR(2) and AR(3) showed evidence that serial correlation was removed. However when compared the AIC values, AR(1) has the lowest AIC.
+
+```{r}
+arima(diff(x),order=c(1,0,0))
+forecast(AR1,h=10)
+plot(forecast(AR1,h=10))
+points(1:length(diff(x)),fitted(AR1),type="l",col="red")
+```
+
+The sample size is less than 50 and the predicted values probably may be extrapolated with uncertainity after certain predictions.
+
+
+### CONCLUSION
+
+
+
