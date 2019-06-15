@@ -316,7 +316,7 @@ highCorr = findCorrelation(corr, cutoff=.9)
 total2 = total1[,-c(highCorr)]
 ```
 
-###6. Separating train and test datasets   
+###6. Recovering train and test datasets   
 
 ```{r, recover train and test datasets, echo=TRUE}
 train <- total2[total$SalePrice != 10, ]
@@ -325,9 +325,9 @@ test <- total2[total$SalePrice == 10, ]
 
 ###7. looking for outliers in train dataset
 
-__We first idenitfied the predictors that are highly correlated with the response variable SalePrice. Then we plotted one of strong predictor GrLivArea against SalePrice and identified two datapoints with both high leverage and influence. In addition, further investigation confirmed that both are presale and likely not reflective their true sale price. We removed these two outliers that have the largest living area (GrLivArea > 4500) and exceptionally low price.__  
+__We first idenitfied the predictors that are highly correlated with the response variable SalePrice and plotted one of strong predictor GrLivArea against SalePrice and visually identified two datapoints (id =524 and 1299) with high leverage and influence (highlighted in red). We further fitted a preliminary full linear regression model and examined its residual vs leverage plot. Indeed, the same two data points have very large residuals and high cook's D score (notice that Id= 1299 is actually literally off the chart). In addition, further investigation confirmed that both are presales and likely not reflective their true sale price. We removed these two outliers that have the largest living area (GrLivArea > 4500), but with exceptionally low sale prices.__  
 
-```{r, remove two outliers in train dataset, echo=TRUE}
+```{r, remove two outliers in train dataset, warning = FALSE, echo=TRUE}
 #identify the highest corerlated predictors for the response variable SalePrice
 corr = cor(train)
 table = as.data.frame(as.table(corr))
@@ -335,8 +335,12 @@ table = table[order(table$Freq, decreasing =TRUE),]
 corr1 = subset(table, table$Var1=='SalePrice')
 head(corr1, 10)#Top 10 predictors
 
-#plot Saleprice vs GrLivArea to identify and remoive outliers 
+#plot Saleprice vs one of its top predictors, GrLivArea, to visually identify outliers 
 ggplot(train, aes(GrLivArea, SalePrice))+geom_point()+ggtitle('Scatter plot highlighting the two presale outliers in red')+geom_point(data=train[train$GrLivArea>4500, ], aes(GrLivArea, SalePrice), colour="red", size=7)
+#Another way to look at their leverage and influence by fitting a preliminary full linear regression model and examine its residual plots
+Pre_model = lm(SalePrice~., data= train)
+plot(Pre_model, which = 5, caption = NULL, main = 'Outliers detection (Id=524 (shown) and Id=1299 (off the chart)')
+#removing two large houses with exceptionally low sale price (presales, not reflective their true value)
 train = train[train$GrLivArea<4500, ]
 ```
 
@@ -372,15 +376,17 @@ fit_control = trainControl(method = 'cv', number = 5)
 ```
 
 ###3. fit the OLS model
+__We first fitted the full ordinary least square regression model and assessed its residual plots for assumptions of linear regression. First of all, we have no reason to suspect that all sales are independent from each other and likely reflects its true value. Second, with the exception of houses with low predicted values (fitted values < 11.5), the variance is more or less constant. Third, from the QQ-plot, the assumption of normal distribution of residuals are less than ideal, significant deviation exists in both end of quantiles. Fourth, many predictors are indeed linearly correlated with the response variable, SalePrice. Thus, the linear regression modle is likely a good model for the dataset.__
 
-```{r, OLS model}
+```{r, OLS model, warning=FALSE, echo=TRUE}
 full_model = train(SalePrice~., data=train_train, method = 'lm', trControl = fit_control)
-full_model$results#showing the cross validation errors????
 plot(varImp(full_model), top=15)
 plot(full_model$finalModel)#residual plots 
 ```
 
 ###4. fit the ridge model
+
+__Next, we fitted the ridge model and used cross validation to find the best value for the tuning parameter lambda. From the results, we noticed that the best tuned lambda value is rather small (), suggesting that only a small penalty is necessary for the reguarization. In other words, this is a rather rich model with many strong predictors, consistent with our correlation martrix analyses and ordinary least square model above.__  
 
 ```{r, ridge model}
 ridge_model = train(SalePrice~., train_train, method='glmnet', tuneGrid = expand.grid(alpha=0, lambda = seq(0.0001, .2, length = 1000)), trControl=fit_control)
@@ -391,6 +397,8 @@ plot(varImp(ridge_model, scale = T), top = 20)#???
 ```
 
 ###5. fit the lasso model
+
+__We also fitted the asso model and used cross validation to choose the best tuning parameter lambda, which results in smallest MSE. We similarly noticed that the best tuning lambda value is rather small, suggesting that the training dataset contains a rich set of  strong predictors and only small penalty term is necessary to achieve the best regularization.__  
 
 ```{r, lasso model, echo=TRUE}
 lasso_model = train(SalePrice~., train_train, method='glmnet', tuneGrid = expand.grid(alpha=1, lambda = seq(0.00001, 0.02, length = 1000)), trControl=fit_control)
